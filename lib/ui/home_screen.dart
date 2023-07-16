@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:flutter_map/plugin_api.dart';
 import 'package:latlong2/latlong.dart';
+import '../model/all_state.dart';
+import '../service/flight_service.dart';
 
 class HomeScreen extends StatefulWidget {
   @override
@@ -8,35 +11,114 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final MapController mapController = MapController();
-  String? countryName;
-  LatLng sw;
-  LatLng ne;
+  MapController _mapController = MapController();
+  String? _countryName = 'Germany';
+  late LatLng _sw = LatLng(47.40724, 5.98815);
+  late LatLng _ne = LatLng(54.9079, 14.98853);
+  late List<AllState> allState;
+  //late MarkerLayer locationPin;
+  //Set<Marker> _markers = {};
+  List<Marker> _markers = [];
 
   List<BoundingCountryBox> boundingList = [
-    BoundingCountryBox('MT', 'Malta', LatLng(35.8, 14.2) as String,
-        LatLng(36.1, 14.6) as String),
     BoundingCountryBox(
-        'Ger',
-        'Germany',
-        LatLng(47.2701114, 5.8663153) as String,
-        LatLng(55.099161, 15.0419319) as String),
+        'MT', 'Malta', LatLng(35.82583, 14.20361), LatLng(36.07222, 14.56701)),
     BoundingCountryBox(
-        'ESP',
-        'Spain',
-        LatLng(27.4335426, -18.3936845) as String,
-        LatLng(43.9933088, 4.5918885) as String),
-    BoundingCountryBox(
-        'USA',
-        'United States of America',
-        LatLng(24.9493, -125.0011) as String,
-        LatLng(49.5904, -669326) as String),
-    BoundingCountryBox(
-        'JPN',
-        'Japan',
-        LatLng(20.2145811, 122.7141744) as String,
-        LatLng(45.7112046, 154.205541) as String),
+        'GER', 'Germany', LatLng(47.40724, 5.98815), LatLng(54.9079, 14.98853)),
+    BoundingCountryBox('ESP', 'Spain', LatLng(27.4335426, -18.3936845),
+        LatLng(43.9933088, 4.5918885)),
+    BoundingCountryBox('USA', 'United States of America',
+        LatLng(24.9493, -125.0011), LatLng(49.5904, -66.9326)),
+    BoundingCountryBox('JPN', 'Japan', LatLng(20.2145811, 122.7141744),
+        LatLng(45.7112046, 154.205541)),
+    BoundingCountryBox('UK', 'United Kongdom', LatLng(49.674, -14.015517),
+        LatLng(61.061, 2.0919117)),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    // setCustomMapPin();
+  }
+
+  void handleSelected() {
+    allState = []; // Initialize the allState field
+
+    doSetState();
+  }
+
+  void doSetState() {
+    setState(() {
+      _mapController.move(
+        LatLng(((_sw.latitude + _ne.latitude) / 2),
+            ((_sw.longitude + _ne.longitude) / 2)),
+        _mapController.zoom,
+      );
+      _mapController.fitBounds(
+        LatLngBounds(_sw, _ne),
+      );
+      //_markers = createMarkers(allState) as List<Marker>;
+      _fetchFlightData(_mapController);
+    });
+  } // für den zoom  und zentrierung
+
+  void _fetchFlightData(MapController controller) async {
+    _mapController = controller;
+    allState = await FlightService().getAllStateBounds(_sw, _ne);
+    // Get the current zoom level from the map controller
+    double zoom = _mapController.zoom;
+    _markers = createMarkers(allState, zoom);
+    setState(() {});
+  }
+
+  List<Marker> createMarkers(List<AllState> allState, double zoom) {
+    allState.forEach((state) {
+      final latitude = state.latitude;
+      final longitude = state.longitude;
+
+      if (latitude != null && longitude != null) {
+        final position = LatLng(latitude, longitude);
+
+        // Calculate the size based on the zoom level
+        double size = 80.0;
+        if (zoom < 10) {
+          size = 40.0;
+        } else if (zoom < 15) {
+          size = 60.0;
+        }
+
+        _markers.add(
+          Marker(
+            width: size,
+            height: size,
+            point: position,
+            builder: (ctx) => GestureDetector(
+              onTap: () {
+                showDialog(
+                  context: context,
+                  builder: (BuildContext context) {
+                    return AlertDialog(
+                      title: Text(state.callsign!.trim()),
+                      // Additional content or actions for the popup
+                    );
+                  },
+                );
+              },
+              child: Container(
+                child: Icon(
+                  Icons.airplanemode_on, size: 15,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+    });
+
+    return _markers;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -93,8 +175,13 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           ),
                           onChanged: (value) {
-                            setState(() {
-                              countryName = value;
+                            boundingList.forEach((element) {
+                              if (element.id == value) {
+                                _sw = element.sw;
+                                _ne = element.ne;
+                                _countryName = element.name;
+                                handleSelected();
+                              }
                             });
                           },
                           items: [
@@ -118,6 +205,10 @@ class _HomeScreenState extends State<HomeScreen> {
                               child: Text("Japan"),
                               value: "JPN",
                             ),
+                            DropdownMenuItem(
+                              child: Text("United Kingdom"),
+                              value: "UK",
+                            ),
                             // Other DropdownMenuItem entries
                           ],
                         ),
@@ -133,7 +224,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       Container(
                         padding: EdgeInsets.symmetric(horizontal: 20),
                         child: Text(
-                          "Air Traffic over $countryName".toUpperCase(),
+                          "Air Traffic over $_countryName".toUpperCase(),
                           style: TextStyle(
                             color: Colors.orange[900],
                             fontSize: 16,
@@ -162,9 +253,14 @@ class _HomeScreenState extends State<HomeScreen> {
                         topRight: Radius.circular(25),
                       ),
                       child: FlutterMap(
+                        mapController: _mapController,
                         options: MapOptions(
-                          center: LatLng(49.674, 2.0919),
-                          zoom: 6,
+                          center: LatLng(_sw.latitude, _ne.latitude),
+                          zoom: 1.5,
+                          onPositionChanged:
+                              (MapPosition position, bool hasGesture) {
+                            // Handle map position changes if needed
+                          },
                         ),
                         children: [
                           TileLayer(
@@ -172,6 +268,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
                             subdomains: ['a', 'b', 'c'],
                           ),
+
+                          MarkerLayer(markers: _markers.toList()),
                         ],
                       ),
                     ),
@@ -189,8 +287,8 @@ class _HomeScreenState extends State<HomeScreen> {
 class BoundingCountryBox {
   final String id;
   final String name;
-  final String sw;
-  final String ne;
+  final LatLng sw;
+  final LatLng ne;
 
   BoundingCountryBox(this.id, this.name, this.sw, this.ne);
 }
